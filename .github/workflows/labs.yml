@@ -8,7 +8,8 @@ on:
   schedule:
     - cron: "17 3 * * 1" # weekly, so image drift is caught early
 
-# Each demo step tees its output to $RUNNER_TEMP/<job>.log. On failure, the tail of that log,
+# Each demo step tees its output to /tmp/<job>.log and records its tail as a notice annotation when it
+# passes. On failure, the tail of that log,
 # `docker compose ps` and recent container logs are re-emitted as error annotations, so a red run
 # can be diagnosed from the check-run annotations alone.
 
@@ -42,6 +43,7 @@ jobs:
         run: |
           echo "### failure drill" >> "$LOG"
           ./scripts/failure-drill.sh 2>&1 | tee -a "$LOG"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --level notice --title "lab01 drill passed" --log "$LOG" --lines 45
       - name: Prometheus sees all 3 brokers
         run: |
           echo "### prometheus" >> "$LOG"
@@ -73,11 +75,11 @@ jobs:
       - name: Annotate failure (step output)
         if: failure()
         working-directory: labs/01-kafka-platform
-        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab01 --log "$LOG" --lines 80 --ps
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title lab01 --log "$LOG" --lines 80 --ps
       - name: Annotate failure (container logs)
         if: failure()
         working-directory: labs/01-kafka-platform
-        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab01 --services kafka-1 kafka-2 kafka-3 kafka-exporter prometheus
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title lab01 --services kafka-1 kafka-2 kafka-3 kafka-exporter prometheus
       - name: Logs on failure
         if: failure()
         working-directory: labs/01-kafka-platform
@@ -102,15 +104,16 @@ jobs:
         run: |
           echo "### cdc demo" >> "$LOG"
           ./scripts/cdc-demo.sh 2>&1 | tee -a "$LOG"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --level notice --title "lab02 demo passed" --log "$LOG" --lines 45
       - name: Annotate failure (step output)
         if: failure()
         run: |
-          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab02 --log "$LOG" --lines 80 --ps
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title lab02 --log "$LOG" --lines 80 --ps
           curl -s http://localhost:8083/connectors?expand=status > /tmp/connect-status.json || true
-          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title "lab02 connector status" --log /tmp/connect-status.json --lines 40
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title "lab02 connector status" --log /tmp/connect-status.json --lines 40
       - name: Annotate failure (container logs)
         if: failure()
-        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab02 --services kafka postgres connect
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title lab02 --services kafka postgres connect
       - name: Logs on failure
         if: failure()
         run: docker compose logs --tail 120
@@ -135,20 +138,21 @@ jobs:
         run: |
           echo "### run demo" >> "$LOG"
           ./scripts/run-demo.sh 2>&1 | tee -a "$LOG"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --level notice --title "lab03 demo passed" --log "$LOG" --lines 25
       - name: Annotate failure (step output)
         if: failure()
         run: |
-          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab03 --log "$LOG" --lines 80 --ps
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title lab03 --log "$LOG" --lines 80 --ps
           K="docker exec lab03-kafka /opt/kafka/bin"
           {
             echo "## topics"; $K/kafka-topics.sh --bootstrap-server localhost:19092 --list
             echo "## end offsets"; $K/kafka-get-offsets.sh --bootstrap-server localhost:19092 --time -1
             echo "## payment-alerting group"; $K/kafka-consumer-groups.sh --bootstrap-server localhost:19092 --describe --group payment-alerting
           } > /tmp/lab03-diag.log 2>&1 || true
-          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title "lab03 cluster state" --log /tmp/lab03-diag.log --lines 120
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title "lab03 cluster state" --log /tmp/lab03-diag.log --lines 120
       - name: Annotate failure (container logs)
         if: failure()
-        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab03 --services kafka init-topics alerting
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title lab03 --services kafka init-topics alerting
       - name: Logs on failure
         if: failure()
         run: docker compose logs --tail 120

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Re-emit the tail of a failed step's output (and container state/logs) as GitHub error annotations.
+"""Re-emit the tail of a step's output (and container state/logs) as GitHub annotations.
 
 Annotations are readable through the check-runs API even when raw job logs are not, so this
 makes a red CI run debuggable from anywhere.
 
-  annotate-failure.py --title "lab01 drill" --log /tmp/drill.log --lines 80 --ps
-  annotate-failure.py --title "lab01 logs" --services kafka-1 kafka-2 --service-lines 40
+  annotate.py --title "lab01 drill" --log /tmp/drill.log --lines 80 --ps
+  annotate.py --title "lab01 logs" --services kafka-1 kafka-2 --service-lines 40
 
 Run from the directory that holds the docker-compose.yml when using --ps or --services.
 """
@@ -15,7 +15,7 @@ import re
 import subprocess
 
 CHUNK = 3800        # keep each annotation message comfortably under GitHub's size cap
-MAX_PER_STEP = 10   # GitHub shows at most 10 error annotations per step
+MAX_PER_STEP = 10   # GitHub keeps at most 10 annotations of each level per step
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 PROBLEM = re.compile(r"ERROR|WARN|Exception|FATAL")
 
@@ -58,6 +58,8 @@ def main():
     ap.add_argument("--ps", action="store_true", help="include docker compose ps -a")
     ap.add_argument("--services", nargs="*", default=[])
     ap.add_argument("--service-lines", type=int, default=40)
+    ap.add_argument("--level", choices=["error", "notice"], default="error",
+                    help="notice: record the output of a passing demo, so a green run can be checked too")
     args = ap.parse_args()
 
     blocks = []  # (title, text) in priority order
@@ -86,7 +88,7 @@ def main():
         blocks = blocks[: MAX_PER_STEP - 1] + [(f"{args.title}: truncated",
                                                  f"{len(blocks) - MAX_PER_STEP + 1} more blocks not shown")]
     for title, text in blocks:
-        print(f"::error title={escape_prop(title)}::{escape_data(text)}", flush=True)
+        print(f"::{args.level} title={escape_prop(title)}::{escape_data(text)}", flush=True)
 
 
 if __name__ == "__main__":
