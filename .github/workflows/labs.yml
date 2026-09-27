@@ -36,7 +36,7 @@ jobs:
         working-directory: labs/01-kafka-platform
         run: |
           echo "### compose up" >> "$LOG"
-          docker compose up -d --wait --wait-timeout 300 2>&1 | tee -a "$LOG"
+          docker compose up -d --quiet-pull --wait --wait-timeout 300 2>&1 | tee -a "$LOG"
       - name: Failure drill
         working-directory: labs/01-kafka-platform
         run: |
@@ -93,7 +93,7 @@ jobs:
       - name: Start Kafka, PostgreSQL, Kafka Connect, Kafka UI
         run: |
           echo "### compose up" >> "$LOG"
-          docker compose up -d --wait --wait-timeout 300 2>&1 | tee -a "$LOG"
+          docker compose up -d --quiet-pull --wait --wait-timeout 300 2>&1 | tee -a "$LOG"
       - name: Register connectors
         run: |
           echo "### register connectors" >> "$LOG"
@@ -129,6 +129,7 @@ jobs:
       - name: Start Kafka and the Streams app
         run: |
           echo "### compose up" >> "$LOG"
+          docker compose --profile demo pull -q kafka init-topics kafka-ui generator
           docker compose up -d --build 2>&1 | tail -40 | tee -a "$LOG"
       - name: End-to-end demo
         run: |
@@ -136,7 +137,15 @@ jobs:
           ./scripts/run-demo.sh 2>&1 | tee -a "$LOG"
       - name: Annotate failure (step output)
         if: failure()
-        run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab03 --log "$LOG" --lines 80 --ps
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab03 --log "$LOG" --lines 80 --ps
+          K="docker exec lab03-kafka /opt/kafka/bin"
+          {
+            echo "## topics"; $K/kafka-topics.sh --bootstrap-server localhost:19092 --list
+            echo "## end offsets"; $K/kafka-get-offsets.sh --bootstrap-server localhost:19092 --time -1
+            echo "## payment-alerting group"; $K/kafka-consumer-groups.sh --bootstrap-server localhost:19092 --describe --group payment-alerting
+          } > /tmp/lab03-diag.log 2>&1 || true
+          python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title "lab03 cluster state" --log /tmp/lab03-diag.log --lines 120
       - name: Annotate failure (container logs)
         if: failure()
         run: python3 "$GITHUB_WORKSPACE/.github/scripts/annotate-failure.py" --title lab03 --services kafka init-topics alerting

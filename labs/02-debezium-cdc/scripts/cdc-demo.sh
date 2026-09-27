@@ -19,10 +19,10 @@ consume() { # topic -> all records currently in the topic (key<TAB>value)
     --timeout-ms 15000 --property print.key=true --property print.headers="${2:-false}" 2>/dev/null || true
 }
 
-wait_for() { # topic pattern min_count
+wait_for() { # topic pattern min_count [print_headers]
   local n=0
   for _ in $(seq 1 12); do
-    n=$(consume "$1" | grep -c -- "$2" || true)
+    n=$(consume "$1" "${4:-false}" | grep -c -- "$2" || true)
     [[ "$n" -ge "$3" ]] && { echo "$n"; return 0; }
     sleep 5
   done
@@ -62,7 +62,8 @@ VALUES (gen_random_uuid(), 'order', '2001', 'OrderPaid',
         '{"orderId": 2001, "customerId": 2, "totalMinor": 31900, "currency": "EUR"}');
 COMMIT;
 SQL
-n=$(wait_for outbox.event.order 'OrderPaid' 1) || fail "outbox event missing on outbox.event.order"
+# The event type travels in the eventType header (the value is only the payload), so print headers.
+n=$(wait_for outbox.event.order 'eventType:OrderPaid' 1 true) || fail "outbox event missing on outbox.event.order"
 consume outbox.event.order true | tail -1
 echo "Key = aggregate id (per-order ordering), header eventType = OrderPaid, value = the payload only."
 

@@ -58,7 +58,8 @@ out=$(produce payments 1000); echo "$out"
 [[ "$out" == 1000\ records\ sent* ]] || fail "acks=all writes should survive one broker loss when min.insync.replicas=2"
 
 step "Write to 'payments-strict' (min.insync.replicas=3): should be rejected"
-strict=$(echo "order-42" | $KAFKA/kafka-console-producer.sh --bootstrap-server "$BS" --topic payments-strict \
+# docker exec needs -i, otherwise the producer sees an empty stdin, sends nothing and exits 0.
+strict=$(echo "order-42" | docker exec -i lab01-kafka-1 /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server "$BS" --topic payments-strict \
   --producer-property acks=all --producer-property retries=0 --producer-property enable.idempotence=false 2>&1 || true)
 if grep -q "NotEnoughReplicas" <<< "$strict"; then
   echo "Rejected as expected: NotEnoughReplicasException"
