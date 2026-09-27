@@ -37,9 +37,13 @@ services:
     depends_on:
       kafka: { condition: service_healthy }
     entrypoint: ["/bin/sh", "-c"]
+    # payments has ONE partition on purpose: the generator writes 14 simulated minutes in a few seconds.
+    # With several input partitions, the Streams tasks drain that backlog at different speeds, the
+    # repartition topic interleaves them out of event-time order, and a lagging merchant's payments
+    # arrive more than the 30 s grace behind stream time and are dropped. See the README.
     command:
       - |
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic payments --partitions 6 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic payments --partitions 1 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic merchant-alerts --partitions 3 --replication-factor 1
 
   alerting:

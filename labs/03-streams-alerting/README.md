@@ -37,7 +37,7 @@ CLEARED  merchant-3  window ending ...  ~29/300 failed (10%)
 - **The latch lives in a state store.** It is backed by a changelog topic, so after a restart or rebalance the app remembers which merchants are already alerting. That means no duplicate pages.
 - **Hysteresis.** The alert raises at 30% and clears at 10%, so a rate hovering around 30% doesn't flap.
 - **Minimum volume.** 3 failures out of 3 payments is not an incident.
-- **Event time plus grace.** Late events inside 30 seconds still count (see the `lateEventWithinGraceIsCounted` test). Replaying a day of data gives the same alerts as live traffic.
+- **Event time plus grace.** Late events inside 30 seconds still count (see the `lateEventWithinGraceIsCounted` test), so the answer does not depend on when a payment happened to reach Kafka.
 - **`exactly_once_v2`.** Window counts and alerts are committed atomically with the input offsets.
 
 ## Tests (app/src/test)
@@ -55,6 +55,7 @@ CLEARED  merchant-3  window ending ...  ~29/300 failed (10%)
 
 ## Production notes
 
+- **Stream time is per partition, and a repartition mixes partitions.** Each task tracks its own stream time. After `selectKey`, the repartition topic interleaves records from every input partition in the order the upstream tasks happened to process them. Live, that skew is small. When a backlog is replayed (or one input partition lags), a merchant's payments can land more than the grace period behind stream time and are silently dropped. This is why the demo's `payments` topic has one partition: its 14-minute burst is processed in event-time order. In production, prefer keying payments by merchant at the producer so the topology can use `groupByKey` without a repartition, size the grace period for the replay or lag you expect, and alert on the `dropped-records` metric. `run-demo.sh` fails if any payment is dropped as late or an alert is decided on a partial window.
 - **Caching.** Record caching is disabled here so every update is visible in the demo. In production, keep the cache on and consider `suppress` or emit-final semantics if you only need closed windows.
 - **Store size.** The window store keeps (window + grace) of data per merchant. Watch RocksDB memory, and set `rocksdb.config.setter` on large keyspaces.
 - **Standby replicas.** Set `num.standby.replicas=1` so a failover doesn't have to rebuild state from the changelog.
