@@ -74,4 +74,4 @@ services:
       - ./generator:/generator:ro
     depends_on:
       init-topics: { condition: service_completed_successfully }
-    entrypoint: ["/bin/sh", "-c", "pip install -q confluent-kafka==2.6.1 && python /generator/generate.py"]
+    entrypoint: ["/bin/sh", "-c", "pip install -q --root-user-action=ignore --disable-pip-version-check confluent-kafka==2.6.1 && python /generator/generate.py"]
