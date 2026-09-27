@@ -1,0 +1,73 @@
+# Lab 03 - Kafka Streams: sliding-window failure-rate alerting per merchant, with latching raise/clear.
+# Start:  docker compose up -d --build
+# Demo:   ./scripts/run-demo.sh
+# Stop:   docker compose down -v
+
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: lab03-kafka
+    hostname: kafka
+    ports: ["9092:9092"]
+    environment:
+      CLUSTER_ID: "bGFiMDMtc3RyZWFtcy1hbA"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_LISTENERS: "INTERNAL://:19092,CONTROLLER://:9093,EXTERNAL://:9092"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:19092,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 20s
+      retries: 18
+      start_period: 15s
+
+  init-topics:
+    image: apache/kafka:3.9.1
+    container_name: lab03-init-topics
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic payments --partitions 6 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic merchant-alerts --partitions 3 --replication-factor 1
+
+  alerting:
+    build: ./app
+    container_name: lab03-alerting
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:19092"
+    depends_on:
+      init-topics: { condition: service_completed_successfully }
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: lab03-kafka-ui
+    ports: ["8080:8080"]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: lab03
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:19092"
+    depends_on:
+      kafka: { condition: service_healthy }
+
+  generator:
+    image: python:3.12-slim
+    container_name: lab03-generator
+    profiles: ["demo"]
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:19092"
+    volumes:
+      - ./generator:/generator:ro
+    depends_on:
+      init-topics: { condition: service_completed_successfully }
+    entrypoint: ["/bin/sh", "-c", "pip install -q confluent-kafka==2.6.1 && python /generator/generate.py"]

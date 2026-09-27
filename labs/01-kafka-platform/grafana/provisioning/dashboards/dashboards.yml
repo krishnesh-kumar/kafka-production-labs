@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: labs
+    folder: Kafka labs
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

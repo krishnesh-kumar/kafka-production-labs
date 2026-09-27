@@ -1,0 +1,89 @@
+name: labs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, so image drift is caught early
+
+jobs:
+  health-check-unit:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: labs/04-health-check } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests
+
+  lab01-platform-and-health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Start 3-broker cluster, UI, Prometheus, Grafana
+        working-directory: labs/01-kafka-platform
+        run: docker compose up -d --wait --wait-timeout 300
+      - name: Failure drill
+        working-directory: labs/01-kafka-platform
+        run: ./scripts/failure-drill.sh
+      - name: Prometheus sees all 3 brokers
+        run: |
+          for i in $(seq 1 30); do
+            v=$(curl -s 'http://localhost:9090/api/v1/query?query=kafka_brokers' | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else 0)')
+            echo "kafka_brokers=$v"; [ "$v" = "3" ] && exit 0; sleep 5
+          done; exit 1
+      - name: Grafana dashboard provisioned
+        run: |
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:3000/api/dashboards/uid/kafka-health > /dev/null && { echo ok; exit 0; }; sleep 3
+          done; exit 1
+      - name: Seed misconfigurations and run the health check
+        working-directory: labs/04-health-check
+        run: |
+          pip install -r requirements.txt
+          ./scripts/seed-demo-cluster.sh
+          python -m healthcheck --bootstrap localhost:9092 --out sample-report.md
+          cat sample-report.md >> "$GITHUB_STEP_SUMMARY"
+          grep -q "min.insync.replicas equals the replication factor" sample-report.md
+          grep -q "replication factor 1" sample-report.md
+          grep -q "no active members" sample-report.md
+      - uses: actions/upload-artifact@v4
+        with: { name: sample-report, path: labs/04-health-check/sample-report.md }
+      - name: Logs on failure
+        if: failure()
+        working-directory: labs/01-kafka-platform
+        run: docker compose logs --tail 80
+
+  lab02-debezium-cdc:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: labs/02-debezium-cdc } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --wait --wait-timeout 300
+      - run: ./scripts/register-connectors.sh
+      - run: ./scripts/cdc-demo.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 120
+
+  lab03-streams-alerting:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: labs/03-streams-alerting } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17", cache: maven }
+      - name: Unit tests (TopologyTestDriver)
+        run: mvn -B -f app/pom.xml verify
+      - name: Start Kafka and the Streams app
+        run: docker compose up -d --build
+      - name: End-to-end demo
+        run: ./scripts/run-demo.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 120

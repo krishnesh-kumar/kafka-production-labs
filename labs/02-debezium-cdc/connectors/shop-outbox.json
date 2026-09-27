@@ -1,0 +1,29 @@
+{
+  "name": "shop-outbox",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "shop",
+    "database.password": "shop",
+    "database.dbname": "shop",
+    "topic.prefix": "shopoutbox",
+    "table.include.list": "public.outbox",
+    "slot.name": "shop_outbox",
+    "publication.name": "shop_outbox",
+    "publication.autocreate.mode": "filtered",
+    "snapshot.mode": "no_data",
+    "tombstones.on.delete": "false",
+    "transforms": "outbox",
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.route.by.field": "aggregatetype",
+    "transforms.outbox.table.field.event.key": "aggregateid",
+    "transforms.outbox.table.fields.additional.placement": "type:header:eventType",
+    "transforms.outbox.table.expand.json.payload": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "topic.creation.default.replication.factor": "1",
+    "topic.creation.default.partitions": "3"
+  }
+}

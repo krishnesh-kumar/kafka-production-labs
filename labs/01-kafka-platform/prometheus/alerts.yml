@@ -1,0 +1,33 @@
+# The alerts I set up first on any cluster I review. Thresholds are starting points, not gospel.
+groups:
+  - name: kafka-health
+    rules:
+      - alert: KafkaBrokerMissing
+        expr: kafka_brokers < 3
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Only {{ $value }} of 3 brokers are visible"
+
+      - alert: KafkaUnderReplicatedPartitions
+        expr: sum(kafka_topic_partition_under_replicated_partition) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} partitions are under-replicated"
+
+      - alert: KafkaPartitionAtMinIsr
+        # ISR has shrunk to 1 replica: one more failure and acks=all writes stop (min.insync.replicas=2).
+        expr: min by (topic, partition) (kafka_topic_partition_in_sync_replica) <= 1
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.topic }}/{{ $labels.partition }} has a single in-sync replica"
+
+      - alert: KafkaConsumerLagGrowing
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 1000
+          and sum by (consumergroup, topic) (deriv(kafka_consumergroup_lag[5m])) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.consumergroup }} is falling behind on {{ $labels.topic }}"

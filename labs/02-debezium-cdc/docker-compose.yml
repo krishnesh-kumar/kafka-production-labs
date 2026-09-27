@@ -1,0 +1,89 @@
+# Lab 02 - Debezium CDC from PostgreSQL to Kafka, plus the transactional outbox pattern.
+# Start:  docker compose up -d --wait && ./scripts/register-connectors.sh
+# Demo:   ./scripts/cdc-demo.sh
+# Stop:   docker compose down -v
+
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: lab02-kafka
+    hostname: kafka
+    ports: ["9092:9092"]
+    environment:
+      CLUSTER_ID: "Zm9vYmFyLWxhYjAyLWNkYw"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_LISTENERS: "INTERNAL://:19092,CONTROLLER://:9093,EXTERNAL://:9092"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:19092,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 20s
+      retries: 18
+      start_period: 15s
+
+  postgres:
+    image: postgres:16
+    container_name: lab02-postgres
+    ports: ["5432:5432"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: shop
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  connect:
+    image: quay.io/debezium/connect:3.0
+    container_name: lab02-connect
+    ports: ["8083:8083"]
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:19092"
+      GROUP_ID: "lab02-connect"
+      CONFIG_STORAGE_TOPIC: "_connect_configs"
+      OFFSET_STORAGE_TOPIC: "_connect_offsets"
+      STATUS_STORAGE_TOPIC: "_connect_statuses"
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      HEAP_OPTS: "-Xms256m -Xmx768m"
+    depends_on:
+      kafka: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: lab02-kafka-ui
+    ports: ["8080:8080"]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: lab02
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:19092"
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: "http://connect:8083"
+    depends_on:
+      connect: { condition: service_healthy }
