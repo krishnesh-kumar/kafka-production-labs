@@ -1,0 +1,84 @@
+name: lab-01
+
+# Lab 01 (3-broker KRaft cluster, broker-loss drill, Prometheus + Grafana) on Docker and on rootless
+# Podman. Shared setup and diagnostics live in .github/actions/; copy this file for a new lab.
+# A passing run records the drill output and image list as notice annotations; a failing run
+# re-emits the step output, `$COMPOSE ps` and container logs as error annotations.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - labs/01-kafka-platform/**
+      - scripts/lib/**
+      - labs.sh
+      - .github/workflows/lab-01.yml
+      - .github/actions/**
+      - .github/scripts/**
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, so image drift is caught early
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab01:
+    name: lab01 (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [docker, podman]
+    env:
+      LOG: /tmp/lab01.log
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/lab-setup
+        with: { engine: "${{ matrix.engine }}" }
+      - name: Start 3-broker cluster, UI, Prometheus, Grafana
+        run: |
+          echo "### labs.sh up 01" >> "$LOG"
+          ./labs.sh up 01 2>&1 | tee -a "$LOG"
+      - name: labs.sh refuses a second lab (shared host ports)
+        run: |
+          echo "### labs.sh up 02 while lab 01 runs" >> "$LOG"
+          if out=$(./labs.sh up 02 2>&1); then echo "$out"; echo "expected labs.sh to refuse"; exit 1; fi
+          echo "$out" | tee -a "$LOG"
+          grep -q "lab 01 is running" <<< "$out"
+      - name: Failure drill
+        run: |
+          echo "### labs.sh drill 01" >> "$LOG"
+          ./labs.sh drill 01 2>&1 | tee /tmp/drill.log | tee -a "$LOG"
+      - name: Prometheus sees all 3 brokers
+        run: |
+          echo "### prometheus" >> "$LOG"
+          for _ in $(seq 1 30); do
+            v=$(curl -s 'http://localhost:9090/api/v1/query?query=kafka_brokers' | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else 0)' || echo 0)
+            echo "kafka_brokers=$v" | tee -a "$LOG"; [ "$v" = "3" ] && exit 0; sleep 5
+          done; exit 1
+      - name: Grafana dashboard provisioned
+        run: |
+          echo "### grafana" >> "$LOG"
+          for _ in $(seq 1 20); do
+            curl -sf http://localhost:3000/api/dashboards/uid/kafka-health > /dev/null && { echo ok; exit 0; }; sleep 3
+          done; curl -s http://localhost:3000/api/dashboards/uid/kafka-health 2>&1 | tee -a "$LOG"; exit 1
+      - uses: ./.github/actions/lab-record
+        with:
+          title: "lab01 drill passed (${{ matrix.engine }})"
+          lab-dir: labs/01-kafka-platform
+          log: /tmp/drill.log
+      - uses: ./.github/actions/lab-diagnostics
+        if: failure()
+        with:
+          title: "lab01 (${{ matrix.engine }})"
+          lab-dir: labs/01-kafka-platform
+          log: /tmp/lab01.log
+          services: kafka-1 kafka-2 kafka-3 kafka-exporter prometheus grafana
+      - name: Stop the lab
+        if: always()
+        run: ./labs.sh down 01

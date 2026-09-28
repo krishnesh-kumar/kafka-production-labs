@@ -1,0 +1,34 @@
+name: Lab record
+description: >
+  Record a passing drill: its output and the images the lab ran, as notice annotations. Annotations
+  are readable through the check-runs API, so a green run can be checked (and quoted) from anywhere.
+inputs:
+  title:
+    description: annotation title, e.g. "lab01 drill passed (docker)"
+    required: true
+  lab-dir:
+    description: directory holding the lab's docker-compose.yml
+    required: true
+  log:
+    description: file holding the drill output
+    required: true
+  lines:
+    description: how many trailing lines of the log to record
+    default: "150"
+runs:
+  using: composite
+  steps:
+    - name: Record drill output
+      shell: bash
+      run: |
+        python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --level notice \
+          --title "${{ inputs.title }}" --log "${{ inputs.log }}" --lines "${{ inputs.lines }}"
+    - name: Record images
+      shell: bash
+      working-directory: ${{ inputs.lab-dir }}
+      run: |
+        source "$GITHUB_WORKSPACE/scripts/lib/engine.sh"
+        $COMPOSE images > /tmp/lab-images.log 2>&1 || true
+        cat /tmp/lab-images.log
+        python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --level notice \
+          --title "${{ inputs.title }} images" --log /tmp/lab-images.log --lines 40

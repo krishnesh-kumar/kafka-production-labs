@@ -1,0 +1,69 @@
+name: lab-02
+
+# Lab 02 (Debezium CDC from PostgreSQL + transactional outbox) on Docker and on rootless Podman.
+# See lab-01.yml for how recording and diagnostics work.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - labs/02-debezium-cdc/**
+      - scripts/lib/**
+      - labs.sh
+      - .github/workflows/lab-02.yml
+      - .github/actions/**
+      - .github/scripts/**
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, so image drift is caught early
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab02:
+    name: lab02 (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [docker, podman]
+    env:
+      LOG: /tmp/lab02.log
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/lab-setup
+        with: { engine: "${{ matrix.engine }}" }
+      - name: Start Kafka, PostgreSQL, Kafka Connect, Kafka UI
+        run: |
+          echo "### labs.sh up 02" >> "$LOG"
+          ./labs.sh up 02 2>&1 | tee -a "$LOG"
+      - name: Register connectors and run the CDC demo
+        run: |
+          echo "### labs.sh drill 02" >> "$LOG"
+          ./labs.sh drill 02 2>&1 | tee /tmp/drill.log | tee -a "$LOG"
+      - uses: ./.github/actions/lab-record
+        with:
+          title: "lab02 demo passed (${{ matrix.engine }})"
+          lab-dir: labs/02-debezium-cdc
+          log: /tmp/drill.log
+      - name: Annotate failure (connector status)
+        if: failure()
+        run: |
+          curl -s 'http://localhost:8083/connectors?expand=status' > /tmp/connect-status.json || true
+          python3 .github/scripts/annotate.py --title "lab02 (${{ matrix.engine }}) connector status" \
+            --log /tmp/connect-status.json --lines 40
+      - uses: ./.github/actions/lab-diagnostics
+        if: failure()
+        with:
+          title: "lab02 (${{ matrix.engine }})"
+          lab-dir: labs/02-debezium-cdc
+          log: /tmp/lab02.log
+          services: kafka postgres connect
+      - name: Stop the lab
+        if: always()
+        run: ./labs.sh down 02
