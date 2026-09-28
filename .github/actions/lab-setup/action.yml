@@ -47,6 +47,9 @@ runs:
           $COMPOSE version
           if [[ "$ENGINE" == podman ]]; then
             echo; podman info --format 'cgroup manager: {{.Host.CgroupManager}}, network backend: {{.Host.NetworkBackend}}, rootless: {{.Host.Security.Rootless}}'
+            for b in /usr/lib/podman/netavark /usr/lib/podman/aardvark-dns /usr/libexec/podman/netavark /usr/libexec/podman/aardvark-dns; do
+              [[ -x "$b" ]] && "$b" --version
+            done
           fi
         } > /tmp/engine-versions.log 2>&1 || true
         cat /tmp/engine-versions.log
