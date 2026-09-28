@@ -1,0 +1,77 @@
+name: lab-04
+
+# Lab 04 (health check CLI): pytest unit tests, then the CLI against lab 01's cluster after
+# seed-demo-cluster.sh, on Docker and on rootless Podman. The generated report is published as
+# base64 notice annotations, so labs/04-health-check/sample-report.md can be rebuilt from a real run
+# byte for byte. See lab-01.yml for how recording and diagnostics work.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - labs/04-health-check/**
+      - labs/01-kafka-platform/**
+      - scripts/lib/**
+      - labs.sh
+      - .github/workflows/lab-04.yml
+      - .github/actions/**
+      - .github/scripts/**
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, so image drift is caught early
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab04:
+    name: lab04 (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [docker, podman]
+    env:
+      LOG: /tmp/lab04.log
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/lab-setup
+        with: { engine: "${{ matrix.engine }}" }
+      - name: Unit tests (pytest, in a Python container)
+        run: |
+          echo "### labs.sh test 04" >> "$LOG"
+          ./labs.sh test 04 2>&1 | tee -a "$LOG"
+      - name: Start lab 01's cluster
+        run: |
+          echo "### labs.sh up 04" >> "$LOG"
+          ./labs.sh up 04 2>&1 | tee -a "$LOG"
+      - name: Seed misconfigurations and run the health check
+        run: |
+          echo "### labs.sh drill 04" >> "$LOG"
+          ./labs.sh drill 04 2>&1 | tee /tmp/drill.log | tee -a "$LOG"
+          cat labs/04-health-check/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/lab-record
+        with:
+          title: "lab04 health check passed (${{ matrix.engine }})"
+          lab-dir: labs/01-kafka-platform
+          log: /tmp/drill.log
+      - name: Publish the generated report
+        run: |
+          python3 .github/scripts/annotate.py --level notice --b64 \
+            --title "lab04 report.md (${{ matrix.engine }}, $(date -u +%Y-%m-%d))" --file labs/04-health-check/report.md
+      - uses: actions/upload-artifact@v5
+        with: { name: "health-check-report-${{ matrix.engine }}", path: labs/04-health-check/report.md }
+      - uses: ./.github/actions/lab-diagnostics
+        if: failure()
+        with:
+          title: "lab04 (${{ matrix.engine }})"
+          lab-dir: labs/01-kafka-platform
+          log: /tmp/lab04.log
+          services: kafka-1 kafka-2 kafka-3
+      - name: Stop the lab
+        if: always()
+        run: ./labs.sh down 04

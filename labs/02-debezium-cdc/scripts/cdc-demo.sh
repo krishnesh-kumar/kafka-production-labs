@@ -6,9 +6,10 @@
 #   4. drill: Kafka Connect is down while 50 orders are written; nothing is lost when it comes back
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source ../../scripts/lib/engine.sh   # sets $ENGINE (docker|podman) and $COMPOSE
 
-PSQL="docker exec -i lab02-postgres psql -U shop -d shop -v ON_ERROR_STOP=1 -qAt"
-KAFKA="docker exec lab02-kafka /opt/kafka/bin"
+PSQL="$ENGINE exec -i lab02-postgres psql -U shop -d shop -v ON_ERROR_STOP=1 -qAt"
+KAFKA="$ENGINE exec lab02-kafka /opt/kafka/bin"
 CONNECT="${CONNECT_URL:-http://localhost:8083}"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -68,13 +69,13 @@ consume outbox.event.order true | tail -1
 echo "Key = aggregate id (per-order ordering), header eventType = OrderPaid, value = the payload only."
 
 step "4. Drill: Kafka Connect goes down while the database keeps writing"
-docker stop lab02-connect > /dev/null
+$ENGINE stop lab02-connect > /dev/null
 $PSQL -c "INSERT INTO orders (customer_id, status, total_minor)
           SELECT 1, 'WRITTEN_DURING_OUTAGE', 1000 + g FROM generate_series(1, 50) g;"
 echo "Replication slot while Connect is down (WAL retained for the connector):"
 $PSQL -c "SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)) AS lag
           FROM pg_replication_slots ORDER BY slot_name;"
-docker start lab02-connect > /dev/null
+$ENGINE start lab02-connect > /dev/null
 for _ in $(seq 1 60); do curl -sf "$CONNECT/connectors" > /dev/null && break; sleep 3; done
 ./scripts/register-connectors.sh > /dev/null
 n=$(wait_for shop.public.orders 'WRITTEN_DURING_OUTAGE' 50) || fail "only $n of 50 outage rows reached Kafka"

@@ -19,12 +19,15 @@ flowchart LR
 
 ## Run
 
+From the repo root, on Docker or Podman:
+
 ```bash
-docker compose up -d --wait          # Kafka, PostgreSQL, Kafka Connect, Kafka UI
-./scripts/register-connectors.sh     # PUT both configs, wait for RUNNING
-./scripts/cdc-demo.sh                # about 2 minutes
-docker compose down -v
+./labs.sh up 02       # Kafka, PostgreSQL, Kafka Connect, Kafka UI
+./labs.sh drill 02    # register-connectors.sh (PUT both configs, wait for RUNNING), then cdc-demo.sh: about 2 minutes
+./labs.sh down 02
 ```
+
+Or by hand in this directory: `docker compose up -d --wait` (or `podman compose up -d --wait`), `./scripts/register-connectors.sh`, `./scripts/cdc-demo.sh`, then `docker compose down -v`.
 
 To explore, open Kafka UI at http://localhost:8080 (topics and connectors), or connect to PostgreSQL at `localhost:5432` (user, password and database are all `shop`).
 

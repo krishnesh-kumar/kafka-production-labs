@@ -1,0 +1,41 @@
+name: Lab diagnostics
+description: >
+  On failure, re-emit the tail of the step output, `$COMPOSE ps -a` and recent container logs as error
+  annotations, so a red run can be diagnosed from the check-run annotations alone (raw job logs are
+  not always reachable). Use with `if: failure()`.
+inputs:
+  title:
+    description: annotation title prefix, e.g. "lab01 (podman)"
+    required: true
+  lab-dir:
+    description: directory holding the lab's docker-compose.yml
+    required: true
+  log:
+    description: file holding the job's step output
+    required: true
+  services:
+    description: space-separated compose services whose logs to annotate
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Annotate failure (step output)
+      shell: bash
+      working-directory: ${{ inputs.lab-dir }}
+      run: |
+        source "$GITHUB_WORKSPACE/scripts/lib/engine.sh"
+        python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title "${{ inputs.title }}" \
+          --log "${{ inputs.log }}" --lines 80 --ps
+    - name: Annotate failure (container logs)
+      shell: bash
+      working-directory: ${{ inputs.lab-dir }}
+      run: |
+        source "$GITHUB_WORKSPACE/scripts/lib/engine.sh"
+        python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --title "${{ inputs.title }}" \
+          --services ${{ inputs.services }}
+    - name: Container logs
+      shell: bash
+      working-directory: ${{ inputs.lab-dir }}
+      run: |
+        source "$GITHUB_WORKSPACE/scripts/lib/engine.sh"
+        $COMPOSE logs --tail 150 || true

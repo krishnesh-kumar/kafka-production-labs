@@ -8,7 +8,19 @@ for file in connectors/*.json; do
   name=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$file")
   config=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["config"]))' "$file")
   echo "Registering $name"
-  curl -sf -X PUT -H "Content-Type: application/json" --data "$config" "$CONNECT/connectors/$name/config" > /dev/null
+  # Connect validates the config (including a test connection to PostgreSQL) before accepting it, so
+  # a database or DNS entry that is not reachable yet gives HTTP 400. Retry a few times, then give up
+  # and show Connect's answer.
+  code="" tmp=$(mktemp)
+  for attempt in 1 2 3 4 5 6; do
+    code=$(curl -s -o "$tmp" -w '%{http_code}' -X PUT -H "Content-Type: application/json" \
+      --data "$config" "$CONNECT/connectors/$name/config" || echo 000)
+    [[ "$code" == 200 || "$code" == 201 ]] && break
+    echo "  attempt $attempt: HTTP $code $(head -c 300 "$tmp" 2> /dev/null)"
+    sleep 5
+  done
+  rm -f "$tmp"
+  [[ "$code" == 200 || "$code" == 201 ]] || { echo "$name was not accepted by Kafka Connect"; exit 1; }
 done
 
 for file in connectors/*.json; do

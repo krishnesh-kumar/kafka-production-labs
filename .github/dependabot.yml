@@ -1,0 +1,25 @@
+# Weekly version bumps. Each bump opens a PR, and the lab workflows re-run the drills on it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+
+  - package-ecosystem: maven
+    directory: /labs/03-streams-alerting/app
+    schedule: { interval: weekly }
+
+  - package-ecosystem: pip
+    directory: /labs/04-health-check
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker
+    directory: /labs/03-streams-alerting/app
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /labs/01-kafka-platform
+      - /labs/02-debezium-cdc
+      - /labs/03-streams-alerting
+    schedule: { interval: weekly }

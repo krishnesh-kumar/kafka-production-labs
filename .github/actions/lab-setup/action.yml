@@ -1,0 +1,57 @@
+name: Lab setup
+description: >
+  Select the container engine for a lab job and record its versions. For podman: stop the Docker
+  daemon (so nothing can silently fall back to it), start rootless Podman's API socket in a systemd
+  user session (Podman runs healthchecks with systemd timers) and use docker-compose v2 as the
+  `podman compose` provider.
+inputs:
+  engine:
+    description: docker or podman
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Rootless Podman with docker-compose v2 as the compose provider
+      if: inputs.engine == 'podman'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo systemctl stop docker.socket docker.service
+        sudo loginctl enable-linger "$USER"
+        export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+        for _ in $(seq 1 30); do [[ -S "$XDG_RUNTIME_DIR/bus" ]] && break; sleep 1; done
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+        systemctl --user start podman.socket
+        provider=""
+        for p in /usr/libexec/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose \
+                 /usr/lib/docker/cli-plugins/docker-compose "$(command -v docker-compose || true)"; do
+          if [[ -n "$p" && -x "$p" ]]; then provider="$p"; break; fi
+        done
+        [[ -n "$provider" ]] || { echo "::error::docker-compose v2 not found on the runner"; exit 1; }
+        {
+          echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
+          echo "PODMAN_COMPOSE_PROVIDER=$provider"
+          echo "DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock"
+        } >> "$GITHUB_ENV"
+    - name: Select the engine for every later step
+      shell: bash
+      run: echo "CONTAINER_ENGINE=${{ inputs.engine }}" >> "$GITHUB_ENV"
+    - name: Record engine versions
+      shell: bash
+      run: |
+        source "$GITHUB_WORKSPACE/scripts/lib/engine.sh"
+        {
+          $ENGINE version
+          echo
+          $COMPOSE version
+          if [[ "$ENGINE" == podman ]]; then
+            echo; podman info --format 'cgroup manager: {{.Host.CgroupManager}}, network backend: {{.Host.NetworkBackend}}, rootless: {{.Host.Security.Rootless}}'
+            for b in /usr/lib/podman/netavark /usr/lib/podman/aardvark-dns /usr/libexec/podman/netavark /usr/libexec/podman/aardvark-dns; do
+              [[ -x "$b" ]] && "$b" --version
+            done
+          fi
+        } > /tmp/engine-versions.log 2>&1 || true
+        cat /tmp/engine-versions.log
+        python3 "$GITHUB_WORKSPACE/.github/scripts/annotate.py" --level notice \
+          --title "engine ${{ inputs.engine }}" --log /tmp/engine-versions.log --lines 80

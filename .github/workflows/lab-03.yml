@@ -1,0 +1,79 @@
+name: lab-03
+
+# Lab 03 (Kafka Streams sliding-window alerting): TopologyTestDriver unit tests, then the end-to-end
+# demo, on Docker and on rootless Podman. See lab-01.yml for how recording and diagnostics work.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - labs/03-streams-alerting/**
+      - scripts/lib/**
+      - labs.sh
+      - .github/workflows/lab-03.yml
+      - .github/actions/**
+      - .github/scripts/**
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, so image drift is caught early
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab03:
+    name: lab03 (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [docker, podman]
+    env:
+      LOG: /tmp/lab03.log
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/lab-setup
+        with: { engine: "${{ matrix.engine }}" }
+      - name: Unit tests (TopologyTestDriver, in a Maven container)
+        run: |
+          echo "### labs.sh test 03" >> "$LOG"
+          ./labs.sh test 03 2>&1 | tee -a "$LOG"
+      - name: Build the Streams app and start Kafka
+        run: |
+          echo "### labs.sh up 03" >> "$LOG"
+          ./labs.sh up 03 2>&1 | tail -60 | tee -a "$LOG"
+      - name: End-to-end demo
+        run: |
+          echo "### labs.sh drill 03" >> "$LOG"
+          ./labs.sh drill 03 2>&1 | tee /tmp/drill.log | tee -a "$LOG"
+      - uses: ./.github/actions/lab-record
+        with:
+          title: "lab03 demo passed (${{ matrix.engine }})"
+          lab-dir: labs/03-streams-alerting
+          log: /tmp/drill.log
+      - name: Annotate failure (cluster state)
+        if: failure()
+        run: |
+          source scripts/lib/engine.sh
+          K="$ENGINE exec lab03-kafka /opt/kafka/bin"
+          {
+            echo "## topics"; $K/kafka-topics.sh --bootstrap-server localhost:19092 --list
+            echo "## end offsets"; $K/kafka-get-offsets.sh --bootstrap-server localhost:19092 --time -1
+            echo "## payment-alerting group"; $K/kafka-consumer-groups.sh --bootstrap-server localhost:19092 --describe --group payment-alerting
+          } > /tmp/lab03-diag.log 2>&1 || true
+          python3 .github/scripts/annotate.py --title "lab03 (${{ matrix.engine }}) cluster state" \
+            --log /tmp/lab03-diag.log --lines 120
+      - uses: ./.github/actions/lab-diagnostics
+        if: failure()
+        with:
+          title: "lab03 (${{ matrix.engine }})"
+          lab-dir: labs/03-streams-alerting
+          log: /tmp/lab03.log
+          services: kafka init-topics alerting
+      - name: Stop the lab
+        if: always()
+        run: ./labs.sh down 03

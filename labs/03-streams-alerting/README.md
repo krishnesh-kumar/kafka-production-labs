@@ -14,12 +14,16 @@ flowchart LR
 
 ## Run
 
+From the repo root, on Docker or Podman:
+
 ```bash
-mvn -f app/pom.xml verify              # 9 TopologyTestDriver tests, no Kafka needed
-docker compose up -d --build           # Kafka + the Streams app (built in Docker)
-./scripts/run-demo.sh                  # 14 simulated minutes of payments, one incident
-docker compose down -v
+./labs.sh test 03     # 9 TopologyTestDriver tests in a Maven container, no Kafka needed
+./labs.sh up 03       # Kafka + the Streams app (built in a container)
+./labs.sh drill 03    # runs ./scripts/run-demo.sh: 14 simulated minutes of payments, one incident
+./labs.sh down 03
 ```
+
+Or by hand: `mvn -f app/pom.xml verify` with a local JDK 17, then in this directory `docker compose up -d --build` (or `podman compose up -d --build`), `./scripts/run-demo.sh` and `docker compose down -v`.
 
 The generator uses **simulated event time**: 14 minutes of traffic are produced in seconds. The app windows on each payment's own timestamp, so the result is the same as it would be live.
 

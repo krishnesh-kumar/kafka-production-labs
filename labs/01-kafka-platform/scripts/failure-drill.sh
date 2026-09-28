@@ -9,8 +9,9 @@
 # Exits non-zero if the cluster does not behave as expected, so CI can run it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source ../../scripts/lib/engine.sh   # sets $ENGINE (docker|podman) and $COMPOSE
 
-KAFKA="docker exec lab01-kafka-1 /opt/kafka/bin"
+KAFKA="$ENGINE exec lab01-kafka-1 /opt/kafka/bin"
 BS="localhost:19092"
 VICTIM="lab01-kafka-3"
 
@@ -44,7 +45,7 @@ out=$(produce payments 1000); echo "$out"
 [[ "$out" == 1000\ records\ sent* ]] || fail "baseline produce did not complete"
 
 step "Stop $VICTIM"
-docker stop "$VICTIM" > /dev/null
+$ENGINE stop "$VICTIM" > /dev/null
 for _ in $(seq 1 30); do
   [[ $(urp_count payments) -gt 0 ]] && break
   sleep 2
@@ -58,8 +59,8 @@ out=$(produce payments 1000); echo "$out"
 [[ "$out" == 1000\ records\ sent* ]] || fail "acks=all writes should survive one broker loss when min.insync.replicas=2"
 
 step "Write to 'payments-strict' (min.insync.replicas=3): should be rejected"
-# docker exec needs -i, otherwise the producer sees an empty stdin, sends nothing and exits 0.
-strict=$(echo "order-42" | docker exec -i lab01-kafka-1 /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server "$BS" --topic payments-strict \
+# exec needs -i, otherwise the producer sees an empty stdin, sends nothing and exits 0.
+strict=$(echo "order-42" | $ENGINE exec -i lab01-kafka-1 /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server "$BS" --topic payments-strict \
   --producer-property acks=all --producer-property retries=0 --producer-property enable.idempotence=false 2>&1 || true)
 if grep -q "NotEnoughReplicas" <<< "$strict"; then
   echo "Rejected as expected: NotEnoughReplicasException"
@@ -74,7 +75,7 @@ echo "Records in 'payments' since the drill started: $written"
 [[ "$written" -eq 2000 ]] || fail "expected 2000 records, found $written"
 
 step "Start $VICTIM again and wait for the ISR to recover"
-docker start "$VICTIM" > /dev/null
+$ENGINE start "$VICTIM" > /dev/null
 for _ in $(seq 1 60); do
   [[ $(urp_count payments) -eq 0 && $(urp_count payments-strict) -eq 0 ]] && break
   sleep 3

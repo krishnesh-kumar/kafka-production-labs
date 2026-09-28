@@ -1,10 +1,12 @@
 # Lab 01 - Kafka platform: 3-broker KRaft cluster, Kafka UI, Prometheus + Grafana.
-# Start:  docker compose up -d --wait
-# Drill:  ./scripts/failure-drill.sh
-# Stop:   docker compose down -v
+# From the repo root (Docker or Podman):  ./labs.sh up 01 && ./labs.sh drill 01 && ./labs.sh down 01
+# Or in this directory:  docker compose up -d --wait   (or: podman compose up -d --wait)
+# Images are fully qualified because Podman does not guess a registry for short names.
+
+name: lab01
 
 x-kafka-common: &kafka-common
-  image: apache/kafka:3.9.1
+  image: docker.io/apache/kafka:3.9.1
   restart: unless-stopped
   healthcheck:
     test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null 2>&1"]
@@ -67,7 +69,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-3:19092,EXTERNAL://localhost:9096"
 
   kafka-ui:
-    image: ghcr.io/kafbat/kafka-ui:latest
+    image: ghcr.io/kafbat/kafka-ui:v1.2.0
     container_name: lab01-kafka-ui
     ports: ["8080:8080"]
     environment:
@@ -79,7 +81,7 @@ services:
       kafka-3: { condition: service_healthy }
 
   kafka-exporter:
-    image: danielqsj/kafka-exporter:latest
+    image: docker.io/danielqsj/kafka-exporter:v1.8.0
     container_name: lab01-kafka-exporter
     restart: unless-stopped
     command:
@@ -95,15 +97,16 @@ services:
       kafka-3: { condition: service_healthy }
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: docker.io/prom/prometheus:v2.55.1
     container_name: lab01-prometheus
     ports: ["9090:9090"]
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      # ":z" relabels the files for SELinux hosts (Fedora, RHEL, Podman on Linux); elsewhere it is a no-op.
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro,z
 
   grafana:
-    image: grafana/grafana:11.3.1
+    image: docker.io/grafana/grafana:11.3.1
     container_name: lab01-grafana
     ports: ["3000:3000"]
     environment:
@@ -111,6 +114,6 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
       GF_SECURITY_ADMIN_PASSWORD: "admin"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro,z
     depends_on: [prometheus]
