@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Add some realistic mistakes to the lab 01 cluster so the health check has something to find.
-# Requires lab 01 running (docker compose -f ../01-kafka-platform/docker-compose.yml up -d --wait).
+# Requires lab 01 running (./labs.sh up 04, or: cd ../01-kafka-platform && $COMPOSE up -d --wait).
 set -euo pipefail
-K="docker exec lab01-kafka-1 /opt/kafka/bin"
+cd "$(dirname "$0")/.."
+source ../../scripts/lib/engine.sh   # sets $ENGINE (docker|podman) and $COMPOSE
+K="$ENGINE exec lab01-kafka-1 /opt/kafka/bin"
 BS="localhost:19092"
 
 create() { $K/kafka-topics.sh --bootstrap-server "$BS" --create --if-not-exists "$@" > /dev/null; }

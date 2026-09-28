@@ -2,17 +2,18 @@
 # Feed 14 simulated minutes of payments and check that exactly one merchant is alerted and then cleared.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source ../../scripts/lib/engine.sh   # sets $ENGINE (docker|podman) and $COMPOSE
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[31mDEMO FAILED: %s\033[0m\n' "$*"; exit 1; }
 
 step "Generate payments (merchant-3 has an incident from minute 4 to 7)"
-docker compose --profile demo run --rm generator
+$COMPOSE --profile demo run --rm generator
 
 step "Alerts emitted by the Streams app"
 alerts=""
 for _ in $(seq 1 24); do
-  alerts=$(docker exec lab03-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:19092 \
+  alerts=$($ENGINE exec lab03-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:19092 \
     --topic merchant-alerts --from-beginning --timeout-ms 10000 2>/dev/null || true)
   grep -q '"CLEARED"' <<< "$alerts" && break
   sleep 5
@@ -41,7 +42,7 @@ short=$(grep '"merchant-3"' <<< "$alerts" | python3 -c '
 import json, sys
 print(sum(1 for line in sys.stdin if line.strip() and json.loads(line)["total"] < 280))')
 [[ "$short" -eq 0 ]] || fail "an alert was decided on a partial window (payments dropped as late?)"
-expired=$(docker logs lab03-alerting 2>&1 | grep -c "Skipping record for expired window" || true)
+expired=$($ENGINE logs lab03-alerting 2>&1 | grep -c "Skipping record for expired window" || true)
 echo "Payments dropped as later than the grace period: $expired"
 [[ "$expired" -eq 0 ]] || fail "$expired payments were dropped as late"
 
