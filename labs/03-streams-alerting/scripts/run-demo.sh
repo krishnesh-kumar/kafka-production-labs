@@ -8,7 +8,9 @@ step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[31mDEMO FAILED: %s\033[0m\n' "$*"; exit 1; }
 
 step "Generate payments (merchant-3 has an incident from minute 4 to 7)"
-$COMPOSE --profile demo run --rm generator
+# --no-deps: Kafka and the topics are already up (labs.sh up 03). Without it, Podman's compose provider
+# can recreate the running Kafka container before the run, wiping its topics mid-lab.
+$COMPOSE --profile demo run --rm --no-deps generator
 
 step "Alerts emitted by the Streams app"
 alerts=""
