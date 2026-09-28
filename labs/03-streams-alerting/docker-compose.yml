@@ -1,11 +1,13 @@
 # Lab 03 - Kafka Streams: sliding-window failure-rate alerting per merchant, with latching raise/clear.
-# Start:  docker compose up -d --build
-# Demo:   ./scripts/run-demo.sh
-# Stop:   docker compose down -v
+# From the repo root (Docker or Podman):  ./labs.sh up 03 && ./labs.sh drill 03 && ./labs.sh down 03
+# Or in this directory:  docker compose up -d --build && ./scripts/run-demo.sh
+# Images are fully qualified because Podman does not guess a registry for short names.
+
+name: lab03
 
 services:
   kafka:
-    image: apache/kafka:3.9.1
+    image: docker.io/apache/kafka:3.9.1
     container_name: lab03-kafka
     hostname: kafka
     ports: ["9092:9092"]
@@ -32,7 +34,7 @@ services:
       start_period: 15s
 
   init-topics:
-    image: apache/kafka:3.9.1
+    image: docker.io/apache/kafka:3.9.1
     container_name: lab03-init-topics
     depends_on:
       kafka: { condition: service_healthy }
@@ -55,7 +57,7 @@ services:
       init-topics: { condition: service_completed_successfully }
 
   kafka-ui:
-    image: ghcr.io/kafbat/kafka-ui:latest
+    image: ghcr.io/kafbat/kafka-ui:v1.2.0
     container_name: lab03-kafka-ui
     ports: ["8080:8080"]
     environment:
@@ -65,13 +67,14 @@ services:
       kafka: { condition: service_healthy }
 
   generator:
-    image: python:3.12-slim
+    image: docker.io/library/python:3.12-slim
     container_name: lab03-generator
     profiles: ["demo"]
     environment:
       BOOTSTRAP_SERVERS: "kafka:19092"
     volumes:
-      - ./generator:/generator:ro
+      # ":z" relabels the directory for SELinux hosts (Fedora, RHEL, Podman on Linux); elsewhere a no-op.
+      - ./generator:/generator:ro,z
     depends_on:
       init-topics: { condition: service_completed_successfully }
     entrypoint: ["/bin/sh", "-c", "pip install -q --root-user-action=ignore --disable-pip-version-check confluent-kafka==2.6.1 && python /generator/generate.py"]
