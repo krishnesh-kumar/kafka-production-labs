@@ -15,11 +15,15 @@ flowchart LR
 
 ## Run
 
+From the repo root, on Docker or Podman:
+
 ```bash
-docker compose up -d --wait        # about 1 minute
-./scripts/failure-drill.sh         # about 1-2 minutes
-docker compose down -v
+./labs.sh up 01       # about 1 minute
+./labs.sh drill 01    # runs ./scripts/failure-drill.sh, about 1-2 minutes
+./labs.sh down 01
 ```
+
+Or by hand in this directory: `docker compose up -d --wait` (or `podman compose up -d --wait`), then `./scripts/failure-drill.sh`, then `docker compose down -v`. The scripts pick the engine the same way as `labs.sh`.
 
 | URL | What |
 |---|---|

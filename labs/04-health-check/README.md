@@ -6,9 +6,18 @@ This is a small, automated slice of the Kafka + CDC Health Check I do by hand. T
 
 ## Run against lab 01
 
+From the repo root, on Docker or Podman:
+
 ```bash
-(cd ../01-kafka-platform && docker compose up -d --wait)
-./scripts/seed-demo-cluster.sh                  # adds realistic mistakes
+./labs.sh up 04       # starts lab 01's 3-broker cluster
+./labs.sh drill 04    # seed-demo-cluster.sh adds realistic mistakes, then run-health-check.sh
+                      # runs the CLI in a python container and writes report.md
+./labs.sh down 04
+```
+
+Or with a local Python, once lab 01 is up and seeded:
+
+```bash
 pip install -r requirements.txt
 python -m healthcheck --bootstrap localhost:9092 --out report.md
 ```
@@ -47,5 +56,7 @@ python -m healthcheck --bootstrap broker:9093 \
 All rules live in `healthcheck/checks.py` as pure functions over a snapshot, and are unit-tested in `tests/` with no Kafka needed:
 
 ```bash
-pip install pytest && python -m pytest -q tests
+./labs.sh test 04     # from the repo root, in a python container
+# or locally:
+pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q tests
 ```
